@@ -21,6 +21,9 @@ app.use(express.static("public"));
 app.get('/', (req, res) => {
     res.status(200).json({ status: "OK", message: "TrendCatcher API is running" });
 });
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: "OK", message: "TrendCatcher API is healthy" });
+});
 
 // ── API Routes ──
 app.use('/api/products', productRoutes);
