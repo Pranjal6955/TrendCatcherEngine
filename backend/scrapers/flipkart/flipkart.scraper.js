@@ -1,5 +1,4 @@
-import axios from "axios";
-import * as cheerio from "cheerio";
+
 import BaseScraper from "../base.scraper.js";
 
 class FlipkartScraper extends BaseScraper {
@@ -7,66 +6,78 @@ class FlipkartScraper extends BaseScraper {
         super("Flipkart");
     }
 
-    /**
-     * Override fetchPage — Flipkart needs extra headers to avoid 403.
-     */
-    async fetchPage(url) {
-        try {
-            const { data } = await axios.get(url, {
-                headers: {
-                    "User-Agent":
-                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                    Accept:
-                        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Accept-Encoding": "gzip, deflate, br",
-                    Referer: "https://www.google.com/",
-                    "Sec-Fetch-Dest": "document",
-                    "Sec-Fetch-Mode": "navigate",
-                    "Sec-Fetch-Site": "cross-site",
-                    "Sec-Fetch-User": "?1",
-                    "Upgrade-Insecure-Requests": "1",
-                    "Cache-Control": "max-age=0",
-                },
-                timeout: 20000,
-                maxRedirects: 10,
-            });
-            return cheerio.load(data);
-        } catch (error) {
-            throw new Error(
-                `[${this.name}] Failed to fetch page: ${error.message}`
-            );
-        }
-    }
-
     async scrape(url) {
-        const $ = await this.fetchPage(url);
+        let browser = null;
+        try {
+            browser = await this.launchBrowser();
+            const page = await this.createPage(browser);
 
-        // ── Title selectors (Flipkart changes these often) ──
-        const title =
-            $("span.VU-ZEz").first().text().trim() ||
-            $("h1.yhB1nd span").first().text().trim() ||
-            $(".B_NuCI").text().trim() ||
-            $("h1 span").first().text().trim() ||
-            $("title").text().split("-")[0].trim() ||
-            "N/A";
+            // Flipkart specific headers
+            await page.setExtraHTTPHeaders({
+                "Referer": "https://www.google.com/"
+            });
 
-        // ── Price selectors ──
-        const priceText =
-            $("div.Nx9bqj.CxhGGd").first().text().trim() ||
-            $("div.Nx9bqj").first().text().trim() ||
-            $("div._30jeq3._16Jk6d").first().text().trim() ||
-            $("._30jeq3").first().text().trim() ||
-            "0";
+            // Navigate
+            await page.goto(url, {
+                waitUntil: "domcontentloaded",
+                timeout: 30000,
+            });
 
-        const price = parseFloat(priceText.replace(/[^0-9.]/g, "")) || 0;
+            // Check for Captcha or Block
+            const title = await page.title();
+            if (title.includes("Something is wrong") || title.includes("reCAPTCHA") || title.includes("Login")) {
+                throw new Error("Blocked by Flipkart (CAPTCHA/Login wall)");
+            }
 
-        // ── Availability ──
-        const availabilityText =
-            $("div._16FRp0").text().trim().toLowerCase() || "";
-        const availability = !availabilityText.includes("sold out");
+            // Wait for price selector
+            const priceSelector = "div.Nx9bqj.CxhGGd, div._30jeq3._16Jk6d, div._30jeq3";
+            try {
+                await page.waitForSelector(priceSelector, { timeout: 15000 });
+            } catch (e) {
+                // Ignore timeout
+            }
 
-        return { title, price, availability };
+            // Extract data
+            const data = await page.evaluate(() => {
+                const getTitle = () => {
+                    const h1 = document.querySelector("span.VU-ZEz") || document.querySelector("h1.yhB1nd span");
+                    return h1 ? h1.innerText.trim() : document.title.split("-")[0].trim();
+                };
+
+                const getPrice = () => {
+                    const priceEl = document.querySelector("div.Nx9bqj.CxhGGd") ||
+                        document.querySelector("div._30jeq3._16Jk6d") ||
+                        document.querySelector("div._30jeq3");
+                    if (priceEl) {
+                        return parseFloat(priceEl.innerText.replace(/[^0-9.]/g, ""));
+                    }
+                    return 0;
+                };
+
+                const getAvailability = () => {
+                    const outOfStockDiv = document.querySelector("div._16FRp0") || document.querySelector(".sold-out-err-text");
+                    if (outOfStockDiv && outOfStockDiv.innerText.toLowerCase().includes("sold out")) return false;
+
+                    const notifyBtn = document.querySelector("button._2KpZ6l._2U9uOA._3v1-ww");
+                    if (notifyBtn && notifyBtn.innerText.toLowerCase().includes("notify")) return false;
+
+                    return true;
+                };
+
+                return {
+                    title: getTitle(),
+                    price: getPrice(),
+                    availability: getAvailability(),
+                };
+            });
+
+            return data;
+
+        } catch (error) {
+            throw new Error(`[${this.name}] Failed to scrape page: ${error.message}`);
+        } finally {
+            if (browser) await browser.close();
+        }
     }
 }
 

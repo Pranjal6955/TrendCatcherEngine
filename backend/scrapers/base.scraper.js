@@ -1,13 +1,15 @@
 /**
- * ── BaseScraper (Adapter Interface) ──
+ * ── BaseScraper (Adapter Interface for Puppeteer) ──
  *
- * Every scraper must extend this class and implement the `scrape()` method.
- * The method MUST return a standardized object:
- *   { title: string, price: number, availability: boolean }
+ * Every scraper extends this class.
+ * Provides a standardized browser factory for scraping.
  */
 
-import axios from "axios";
-import * as cheerio from "cheerio";
+import puppeteer from "puppeteer-extra";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
+
+// Activate stealth globally
+puppeteer.use(StealthPlugin());
 
 class BaseScraper {
     constructor(name) {
@@ -15,27 +17,54 @@ class BaseScraper {
     }
 
     /**
-     * Fetch raw HTML from a URL with browser-like headers.
-     * Shared utility for all scrapers.
+     * Create a configured Puppeteer browser instance.
+     * Uses: Headless, Stealth, No-Sandbox, Resource Blocking.
      */
-    async fetchPage(url) {
-        try {
-            const { data } = await axios.get(url, {
-                headers: {
-                    "User-Agent":
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    Accept:
-                        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                },
-                timeout: 15000,
-            });
-            return cheerio.load(data);
-        } catch (error) {
-            throw new Error(
-                `[${this.name}] Failed to fetch page: ${error.message}`
-            );
-        }
+    async launchBrowser() {
+        return await puppeteer.launch({
+            headless: "new",
+            args: [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-accelerated-2d-canvas",
+                "--disable-gpu",
+                "--window-size=1920,1080",
+                "--disable-infobars",
+                "--lang=en-US,en"
+            ],
+        });
+    }
+
+    /**
+     * Helper: Setup a page with stealth headers and resource blocking.
+     * @param {Browser} browser 
+     */
+    async createPage(browser) {
+        const page = await browser.newPage();
+
+        // mimic real user agent
+        await page.setUserAgent(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        );
+
+        // extra headers
+        await page.setExtraHTTPHeaders({
+            "Accept-Language": "en-US,en;q=0.9",
+        });
+
+        // block heavy resources
+        await page.setRequestInterception(true);
+        page.on("request", (req) => {
+            const resourceType = req.resourceType();
+            if (["image", "stylesheet", "font", "media"].includes(resourceType)) {
+                req.abort();
+            } else {
+                req.continue();
+            }
+        });
+
+        return page;
     }
 
     /**

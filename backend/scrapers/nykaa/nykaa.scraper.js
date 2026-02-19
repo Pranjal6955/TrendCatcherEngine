@@ -1,3 +1,4 @@
+
 import BaseScraper from "../base.scraper.js";
 
 class NykaaScraper extends BaseScraper {
@@ -6,46 +7,60 @@ class NykaaScraper extends BaseScraper {
     }
 
     async scrape(url) {
-        const $ = await this.fetchPage(url);
+        let browser = null;
+        try {
+            browser = await this.launchBrowser();
+            const page = await this.createPage(browser);
 
-        let title = "N/A";
-        let price = 0;
-        let availability = true;
+            await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
 
-        // Try JSON-LD structured data
-        const jsonLd = $('script[type="application/ld+json"]').first().html();
-        if (jsonLd) {
             try {
-                const data = JSON.parse(jsonLd);
-                title = data.name || title;
-                price =
-                    parseFloat(data.offers?.price) ||
-                    parseFloat(data.offers?.lowPrice) ||
-                    price;
-                availability =
-                    data.offers?.availability !== "https://schema.org/OutOfStock";
-            } catch {
-                // fall through
+                // Wait for product header
+                await page.waitForSelector("h1", { timeout: 10000 });
+            } catch (e) {
+                // Ignore
             }
-        }
 
-        // Fallback: DOM selectors
-        if (title === "N/A") {
-            title =
-                $("h1.css-1gc4x7i").text().trim() ||
-                $('meta[property="og:title"]').attr("content") ||
-                "N/A";
-        }
+            const data = await page.evaluate(() => {
+                const getTitle = () => {
+                    return document.querySelector("h1")?.innerText.trim() || document.title;
+                };
 
-        if (price === 0) {
-            const priceText =
-                $("span.css-1jczs19").first().text().trim() ||
-                $('meta[property="product:price:amount"]').attr("content") ||
-                "0";
-            price = parseFloat(priceText.replace(/[^0-9.]/g, "")) || 0;
-        }
+                const getPrice = () => {
+                    // Try semantic or data-attribute
+                    // Nykaa often has .css-1jczs19 containing price
+                    // Also meta[property="product:price:amount"]
+                    const metaPrice = document.querySelector('meta[property="product:price:amount"]');
+                    if (metaPrice) return parseFloat(metaPrice.content);
 
-        return { title, price, availability };
+                    const span = document.querySelector("span.css-1jczs19") || document.querySelector(".css-1e492kkw");
+                    if (span) {
+                        return parseFloat(span.innerText.replace(/[^0-9.]/g, ""));
+                    }
+                    return 0;
+                };
+
+                const getAvailability = () => {
+                    const btn = document.querySelector("button");
+                    if (btn && btn.innerText.toLowerCase().includes("sold out")) return false;
+                    const metaAvail = document.querySelector('meta[property="product:availability"]');
+                    if (metaAvail && metaAvail.content !== "instock") return false;
+                    return true;
+                };
+
+                return {
+                    title: getTitle(),
+                    price: getPrice(),
+                    availability: getAvailability(),
+                };
+            });
+
+            return data;
+        } catch (error) {
+            throw new Error(`[${this.name}] Failed to scrape: ${error.message}`);
+        } finally {
+            if (browser) await browser.close();
+        }
     }
 }
 

@@ -1,3 +1,4 @@
+
 import BaseScraper from "../base.scraper.js";
 
 class MyntraScraper extends BaseScraper {
@@ -6,49 +7,61 @@ class MyntraScraper extends BaseScraper {
     }
 
     async scrape(url) {
-        const $ = await this.fetchPage(url);
+        let browser = null;
+        try {
+            browser = await this.launchBrowser();
+            const page = await this.createPage(browser);
 
-        // Myntra uses heavy JS rendering — try JSON-LD and meta tags first
-        let title = "N/A";
-        let price = 0;
-        let availability = true;
+            // Navigate
+            await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
 
-        // Try JSON-LD structured data
-        const jsonLd = $('script[type="application/ld+json"]').first().html();
-        if (jsonLd) {
+            // Myntra JS might take a moment
             try {
-                const data = JSON.parse(jsonLd);
-                title = data.name || title;
-                price =
-                    parseFloat(data.offers?.price) ||
-                    parseFloat(data.offers?.lowPrice) ||
-                    price;
-                availability =
-                    data.offers?.availability !== "https://schema.org/OutOfStock";
-            } catch {
-                // JSON-LD parse failed, fall through to DOM selectors
+                await page.waitForSelector(".pdp-price", { timeout: 10000 });
+            } catch (e) {
+                // Ignore if not immediately found
             }
-        }
 
-        // Fallback: DOM selectors
-        if (title === "N/A") {
-            title =
-                $("h1.pdp-title").text().trim() ||
-                $(".pdp-name").text().trim() ||
-                "N/A";
-        }
+            const data = await page.evaluate(() => {
+                const getTitle = () => {
+                    const brand = document.querySelector(".pdp-title")?.innerText.trim() || "";
+                    const name = document.querySelector(".pdp-name")?.innerText.trim() || "";
+                    return brand && name ? `${brand} ${name}` : document.title;
+                };
 
-        if (price === 0) {
-            const priceText =
-                $("span.pdp-price strong").text().trim() ||
-                $(".pdp-discount-container .pdp-price strong")
-                    .text()
-                    .trim() ||
-                "0";
-            price = parseFloat(priceText.replace(/[^0-9.]/g, "")) || 0;
-        }
+                const getPrice = () => {
+                    const priceEl = document.querySelector(".pdp-price strong") || document.querySelector(".pdp-price");
+                    if (priceEl) {
+                        return parseFloat(priceEl.innerText.replace(/[^0-9.]/g, ""));
+                    }
+                    return 0;
+                };
 
-        return { title, price, availability };
+                const getAvailability = () => {
+                    // Check for "Sold Out" or "Out of Stock" button
+                    const buyBtn = document.querySelector(".pdp-add-to-bag");
+                    if (buyBtn && buyBtn.classList.contains("pdp-out-of-stock")) {
+                        return false;
+                    }
+                    if (document.body.innerText.toLowerCase().includes("sold out")) {
+                        return false;
+                    }
+                    return true;
+                };
+
+                return {
+                    title: getTitle(),
+                    price: getPrice(),
+                    availability: getAvailability(),
+                };
+            });
+
+            return data;
+        } catch (error) {
+            throw new Error(`[${this.name}] Failed to scrape: ${error.message}`);
+        } finally {
+            if (browser) await browser.close();
+        }
     }
 }
 

@@ -1,3 +1,4 @@
+
 import BaseScraper from "../base.scraper.js";
 
 class SnapdealScraper extends BaseScraper {
@@ -6,26 +7,52 @@ class SnapdealScraper extends BaseScraper {
     }
 
     async scrape(url) {
-        const $ = await this.fetchPage(url);
+        let browser = null;
+        try {
+            browser = await this.launchBrowser();
+            const page = await this.createPage(browser);
 
-        const title =
-            $("h1.pdp-e-i-head").text().trim() ||
-            $("h1[itemprop='name']").text().trim() ||
-            $('meta[property="og:title"]').attr("content") ||
-            "N/A";
+            await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
 
-        const priceText =
-            $("span.payBlkBig").text().trim() ||
-            $("span[itemprop='price']").text().trim() ||
-            "0";
+            try {
+                await page.waitForSelector(".pdp-e-i-PAY-r", { timeout: 10000 });
+            } catch (e) {
+                // Ignore
+            }
 
-        const price = parseFloat(priceText.replace(/[^0-9.]/g, "")) || 0;
+            const data = await page.evaluate(() => {
+                const getTitle = () => {
+                    return document.querySelector("h1.pdp-e-i-head")?.innerText.trim() || document.title;
+                };
 
-        const availabilityText =
-            $(".sold-out-err-text").text().trim().toLowerCase() || "";
-        const availability = !availabilityText.includes("sold out");
+                const getPrice = () => {
+                    // .payBlkBig or .pdp-e-i-PAY-r
+                    const priceEl = document.querySelector(".payBlkBig") || document.querySelector(".pdp-e-i-PAY-r");
+                    if (priceEl) {
+                        return parseFloat(priceEl.innerText.replace(/[^0-9.]/g, ""));
+                    }
+                    return 0;
+                };
 
-        return { title, price, availability };
+                const getAvailability = () => {
+                    const soldOut = document.querySelector(".sold-out-err");
+                    if (soldOut && soldOut.style.display !== "none") return false;
+                    return true;
+                };
+
+                return {
+                    title: getTitle(),
+                    price: getPrice(),
+                    availability: getAvailability(),
+                };
+            });
+
+            return data;
+        } catch (error) {
+            throw new Error(`[${this.name}] Failed to scrape: ${error.message}`);
+        } finally {
+            if (browser) await browser.close();
+        }
     }
 }
 

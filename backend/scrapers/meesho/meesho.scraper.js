@@ -1,3 +1,4 @@
+
 import BaseScraper from "../base.scraper.js";
 
 class MeeshoScraper extends BaseScraper {
@@ -6,48 +7,58 @@ class MeeshoScraper extends BaseScraper {
     }
 
     async scrape(url) {
-        const $ = await this.fetchPage(url);
+        let browser = null;
+        try {
+            browser = await this.launchBrowser();
+            const page = await this.createPage(browser);
 
-        let title = "N/A";
-        let price = 0;
-        let availability = true;
+            await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
 
-        // Try JSON-LD structured data
-        const jsonLd = $('script[type="application/ld+json"]').first().html();
-        if (jsonLd) {
             try {
-                const data = JSON.parse(jsonLd);
-                title = data.name || title;
-                price =
-                    parseFloat(data.offers?.price) ||
-                    parseFloat(data.offers?.lowPrice) ||
-                    price;
-                availability =
-                    data.offers?.availability !== "https://schema.org/OutOfStock";
-            } catch {
-                // fall through
+                // Wait for product details block
+                await page.waitForSelector("div[class*='ProductDescription']", { timeout: 10000 });
+            } catch (e) {
+                // Ignore
             }
-        }
 
-        // Fallback: DOM selectors
-        if (title === "N/A") {
-            title =
-                $("h1.ProductName__ProductTitle").text().trim() ||
-                $("span.sc-eDvSVe").first().text().trim() ||
-                $('meta[property="og:title"]').attr("content") ||
-                "N/A";
-        }
+            const data = await page.evaluate(() => {
+                const getTitle = () => {
+                    const h4 = document.querySelector("h4[class*='ProductListingTitle']");
+                    if (h4) return h4.innerText.trim();
+                    return document.body.querySelector("h1")?.innerText.trim() || document.title;
+                };
 
-        if (price === 0) {
-            const priceText =
-                $("h4.ProductPrice").text().trim() ||
-                $("h5.bJYEpf").text().trim() ||
-                $('meta[property="product:price:amount"]').attr("content") ||
-                "0";
-            price = parseFloat(priceText.replace(/[^0-9.]/g, "")) || 0;
-        }
+                const getPrice = () => {
+                    // Looks for h4 which starts with "₹" often
+                    const potentialPrices = Array.from(document.querySelectorAll("h4"));
+                    for (const p of potentialPrices) {
+                        const text = p.innerText.trim();
+                        if (text.startsWith("₹") && text.length < 20) {
+                            return parseFloat(text.replace(/[^0-9.]/g, ""));
+                        }
+                    }
+                    return 0;
+                };
 
-        return { title, price, availability };
+                const getAvailability = () => {
+                    const btn = document.querySelector("button");
+                    if (btn && btn.innerText.toLowerCase().includes("sold out")) return false;
+                    return true;
+                };
+
+                return {
+                    title: getTitle(),
+                    price: getPrice(),
+                    availability: getAvailability(),
+                };
+            });
+
+            return data;
+        } catch (error) {
+            throw new Error(`[${this.name}] Failed to scrape: ${error.message}`);
+        } finally {
+            if (browser) await browser.close();
+        }
     }
 }
 
