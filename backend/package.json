@@ -1,16 +1,23 @@
 {
-  "name": "trendcatcher",
-  "version": "1.0.0",
-  "description": "",
-  "license": "ISC",
-  "author": "Pranjal6955",
-  "type": "commonjs",
-  "main": "server.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "dependencies": {
-    "express": "^5.2.1",
-    "mongoose": "^9.2.1"
-  }
+    "name": "trendcatcherengine-backend",
+    "version": "1.0.0",
+    "description": "Backend for TrendCatcher Engine",
+    "main": "server.js",
+    "type": "module",
+    "scripts": {
+        "start": "node server.js",
+        "dev": "nodemon server.js"
+    },
+    "keywords": [],
+    "author": "Pranjal6955",
+    "license": "ISC",
+    "dependencies": {
+        "cors": "^2.8.6",
+        "dotenv": "^17.3.1",
+        "express": "^5.2.1",
+        "mongoose": "^9.2.1"
+    },
+    "devDependencies": {
+        "nodemon": "^3.1.11"
+    }
 }
