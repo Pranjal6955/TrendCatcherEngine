@@ -1,16 +1,5 @@
 /**
  * ── Scheduled Jobs (node-cron) ──
- * Runs background scraper jobs on a cron schedule.
- *
- * Cron expression (default): "0 * /6 * * *"  →  every 6 hours
- * Configurable via CRON_SCHEDULE in .env
- *
- * Features:
- *   ✅ Overlap protection (won't start a new run if one is active)
- *   ✅ Job history tracking (last 10 runs)
- *   ✅ Configurable schedule via .env
- *   ✅ Next-run calculation
- *   ✅ Manual trigger support
  */
 
 import cron from "node-cron";
@@ -85,11 +74,11 @@ const safeScrape = async () => {
  * Call once after DB connection is established.
  */
 const initScheduledJobs = () => {
-    const schedule = process.env.CRON_SCHEDULE || "0 */6 * * *";
+    const schedule = process.env.CRON_SCHEDULE || "6 hours";
 
     // Validate the cron expression
     if (!cron.validate(schedule)) {
-        console.error(`❌ [Cron] Invalid cron expression: "${schedule}". Falling back to every 6 hours.`);
+        console.error(`❌ [Cron] Invalid cron expression: "6 hours". Falling back to every 6 hours.`);
         cronState.schedule = "0 */6 * * *";
     } else {
         cronState.schedule = schedule;
@@ -104,7 +93,17 @@ const initScheduledJobs = () => {
 
     console.log(`📅 [Cron] Scheduled jobs initialized`);
     console.log(`   ⏱️  Schedule : ${cronState.schedule}`);
-    console.log(`   🕐 Started  : ${cronState.startedAt.toISOString()}`);
+    const formattedTime = cronState.startedAt.toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+    });
+    console.log(`   🕐 Started  : ${formattedTime} IST`);
 };
 
 /**

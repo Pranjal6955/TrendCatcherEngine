@@ -1,5 +1,6 @@
 import { Product } from "../models/product.model.js";
 import { PriceHistory } from "../models/priceHistory.model.js";
+import ScraperFactory from "../scrapers/scraperFactory.js";
 
 // ── Helper: extract hostname from URL ──
 const extractSource = (url) => {
@@ -9,6 +10,26 @@ const extractSource = (url) => {
     } catch {
         return "unknown";
     }
+};
+
+// ── Helper: extract product name from URL slug ──
+const extractNameFromURL = (url) => {
+    try {
+        const pathname = new URL(url).pathname;
+        // Most e-commerce URLs: /product-name-slug/p/id or /product-name-slug/...
+        const segments = pathname.split("/").filter(Boolean);
+        if (segments.length > 0) {
+            // Pick the first meaningful slug (skip short IDs like "p", "dp", "s")
+            const slug = segments.find((s) => s.length > 3 && !/^(p|dp|s|buy|itm|pid)$/i.test(s));
+            if (slug) {
+                return slug
+                    .replace(/[-_]/g, " ")
+                    .replace(/\b\w/g, (c) => c.toUpperCase())
+                    .trim();
+            }
+        }
+    } catch { }
+    return "Unknown Product";
 };
 
 // ── 1. Add a new product URL ──
@@ -21,14 +42,34 @@ const addProduct = async (url, name) => {
 
     const source = extractSource(url);
 
+    // Auto-scrape product details from the URL
+    let scrapedTitle = "Unknown Product";
+    let scrapedPrice = 0;
+    let scrapedAvailability = true;
+
+    try {
+        console.log(`🔍 [AddProduct] Scraping product details from: ${url}`);
+        const scraped = await ScraperFactory.scrape(url);
+        scrapedTitle = scraped.title || "Unknown Product";
+        scrapedPrice = scraped.price || 0;
+        scrapedAvailability = scraped.availability ?? true;
+        console.log(`✅ [AddProduct] Scraped → "${scrapedTitle}" | ₹${scrapedPrice}`);
+    } catch (err) {
+        console.warn(`⚠️  [AddProduct] Scraping failed: ${err.message}. Using fallback values.`);
+    }
+
+    // Priority: user-provided name > scraped title > URL slug fallback
+    const productName = name || (scrapedTitle !== "Unknown Product" && scrapedTitle !== "N/A" ? scrapedTitle : extractNameFromURL(url));
+
     const product = await Product.create({
-        name,
+        name: productName,
         url,
         source,
-        currentPrice: 0,
-        highestPrice: 0,
-        lowestPrice: 0,
-        averagePrice: 0,
+        currentPrice: scrapedPrice,
+        highestPrice: scrapedPrice,
+        lowestPrice: scrapedPrice > 0 ? scrapedPrice : 0,
+        averagePrice: scrapedPrice,
+        isActive: scrapedAvailability,
     });
 
     return product;
@@ -94,4 +135,28 @@ const getProductPriceHistory = async (productId, { page = 1, limit = 20 }) => {
     };
 };
 
-export { addProduct, getAllProducts, getProductPriceHistory };
+// ── 4. Bulk add multiple product URLs ──
+const bulkAddProducts = async (products) => {
+    const results = { added: [], failed: [] };
+
+    for (const item of products) {
+        try {
+            const product = await addProduct(item.url, item.name);
+            results.added.push({
+                name: item.name,
+                url: item.url,
+                _id: product._id,
+            });
+        } catch (error) {
+            results.failed.push({
+                name: item.name,
+                url: item.url,
+                reason: error.message || "Unknown error",
+            });
+        }
+    }
+
+    return results;
+};
+
+export { addProduct, bulkAddProducts, getAllProducts, getProductPriceHistory };

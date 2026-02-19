@@ -15,10 +15,7 @@ const productSchema = new mongoose.Schema(
             unique: true,
             trim: true,
         },
-        image: {
-            type: String,
-            default: "",
-        },
+
 
         // ── Current State ──
         currentPrice: {
@@ -50,11 +47,7 @@ const productSchema = new mongoose.Schema(
             lowercase: true,
             index: true,
         },
-        category: {
-            type: String,
-            default: "general",
-            trim: true,
-        },
+
 
         // ── Tracking Meta ──
         totalChecks: {

@@ -1,6 +1,7 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import {
     addProduct,
+    bulkAddProducts,
     getAllProducts,
     getProductPriceHistory,
 } from "../services/product.service.js";
@@ -9,9 +10,9 @@ import {
 const addProductController = asyncHandler(async (req, res) => {
     const { url, name } = req.body;
 
-    if (!url || !name) {
+    if (!url) {
         res.status(400);
-        throw new Error("Both 'url' and 'name' fields are required");
+        throw new Error("'url' field is required");
     }
 
     const product = await addProduct(url, name);
@@ -20,6 +21,32 @@ const addProductController = asyncHandler(async (req, res) => {
         success: true,
         message: "Product added successfully",
         data: product,
+    });
+});
+
+// ── 1b. POST  /api/products/bulk  — Add multiple product URLs at once ──
+const bulkAddProductsController = asyncHandler(async (req, res) => {
+    const { products } = req.body;
+
+    if (!Array.isArray(products) || products.length === 0) {
+        res.status(400);
+        throw new Error("'products' must be a non-empty array of { url, name } objects");
+    }
+
+    // Validate each item
+    for (let i = 0; i < products.length; i++) {
+        if (!products[i].url) {
+            res.status(400);
+            throw new Error(`Item at index ${i} is missing 'url'`);
+        }
+    }
+
+    const results = await bulkAddProducts(products);
+
+    res.status(201).json({
+        success: true,
+        message: `Bulk add complete — ${results.added.length} added, ${results.failed.length} failed`,
+        data: results,
     });
 });
 
@@ -60,6 +87,7 @@ const getProductPriceHistoryController = asyncHandler(async (req, res) => {
 
 export {
     addProductController,
+    bulkAddProductsController,
     getAllProductsController,
     getProductPriceHistoryController,
 };
